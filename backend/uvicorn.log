@@ -64,3 +64,72 @@ INFO:     127.0.0.1:56536 - "WebSocket /ws" [accepted]
 INFO:     connection open
 INFO:     127.0.0.1:63625 - "WebSocket /ws" [accepted]
 INFO:     connection open
+2026-07-05 12:49:52,344 WARNING websocket.delta_client: Delta WebSocket disconnected: no close frame received or sent
+2026-07-05 14:22:21,061 WARNING websocket.delta_client: Delta WebSocket disconnected: no close frame received or sent
+INFO:     127.0.0.1:63847 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:64736 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:57881 - "WebSocket /ws" [accepted]
+INFO:     connection open
+2026-07-05 15:04:25,241 WARNING websocket.delta_client: Delta WebSocket disconnected: [Errno 11001] getaddrinfo failed
+INFO:     127.0.0.1:60729 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:50259 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:59245 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:60632 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:55094 - "WebSocket /ws" [accepted]
+INFO:     connection open
+2026-07-05 16:12:16,700 WARNING websocket.delta_client: Delta WebSocket disconnected: no close frame received or sent
+INFO:     127.0.0.1:52849 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:52855 - "WebSocket /ws" [accepted]
+INFO:     connection open
+2026-07-05 16:41:27,025 WARNING websocket.delta_client: Delta WebSocket disconnected: [Errno 11001] getaddrinfo failed
+INFO:     127.0.0.1:52857 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:64248 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:65064 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:63626 - "WebSocket /ws" [accepted]
+INFO:     connection open
+2026-07-05 16:41:30,327 ERROR asyncio: Exception in callback _ProactorBasePipeTransport._call_connection_lost(None)
+handle: <Handle _ProactorBasePipeTransport._call_connection_lost(None)>
+Traceback (most recent call last):
+  File "C:\Users\kartik\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+  File "C:\Users\kartik\AppData\Local\Programs\Python\Python312\Lib\asyncio\proactor_events.py", line 165, in _call_connection_lost
+    self._sock.shutdown(socket.SHUT_RDWR)
+ConnectionResetError: [WinError 10054] An existing connection was forcibly closed by the remote host
+2026-07-05 16:59:50,695 ERROR asyncio: Exception in callback _ProactorBasePipeTransport._call_connection_lost(None)
+handle: <Handle _ProactorBasePipeTransport._call_connection_lost(None)>
+Traceback (most recent call last):
+  File "C:\Users\kartik\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+  File "C:\Users\kartik\AppData\Local\Programs\Python\Python312\Lib\asyncio\proactor_events.py", line 165, in _call_connection_lost
+    self._sock.shutdown(socket.SHUT_RDWR)
+ConnectionResetError: [WinError 10054] An existing connection was forcibly closed by the remote host
+INFO:     127.0.0.1:59510 - "WebSocket /ws" [accepted]
+INFO:     connection open
+2026-07-05 16:59:54,721 ERROR asyncio: Exception in callback _ProactorBasePipeTransport._call_connection_lost(None)
+handle: <Handle _ProactorBasePipeTransport._call_connection_lost(None)>
+Traceback (most recent call last):
+  File "C:\Users\kartik\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+  File "C:\Users\kartik\AppData\Local\Programs\Python\Python312\Lib\asyncio\proactor_events.py", line 165, in _call_connection_lost
+    self._sock.shutdown(socket.SHUT_RDWR)
+ConnectionResetError: [WinError 10054] An existing connection was forcibly closed by the remote host
+INFO:     127.0.0.1:53656 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:59011 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:54662 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:59992 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:57529 - "WebSocket /ws" [accepted]
+INFO:     connection open
