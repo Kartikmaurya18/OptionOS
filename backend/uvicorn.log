@@ -133,3 +133,47 @@ INFO:     127.0.0.1:59992 - "WebSocket /ws" [accepted]
 INFO:     connection open
 INFO:     127.0.0.1:57529 - "WebSocket /ws" [accepted]
 INFO:     connection open
+2026-07-05 17:08:59,076 WARNING websocket.delta_client: Delta WebSocket disconnected: no close frame received or sent
+INFO:     127.0.0.1:64035 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:52562 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:56676 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:58111 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:62733 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:62411 - "WebSocket /ws" [accepted]
+INFO:     connection open
+2026-07-05 17:23:09,922 WARNING websocket.delta_client: Delta WebSocket disconnected: no close frame received or sent
+INFO:     127.0.0.1:52321 - "GET /api/option-chain HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65373 - "GET /api/option-chain HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65378 - "GET /api/option-chain HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65383 - "GET /api/option-chain HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65387 - "GET /api/option-chain HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49852 - "WebSocket /ws" [accepted]
+INFO:     connection open
+2026-07-05 20:24:34,867 WARNING websocket.delta_client: Delta WebSocket disconnected: no close frame received or sent
+INFO:     127.0.0.1:60794 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:64996 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:57297 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:62581 - "WebSocket /ws" [accepted]
+INFO:     connection open
+2026-07-05 20:25:56,110 ERROR asyncio: Exception in callback _ProactorBasePipeTransport._call_connection_lost(None)
+handle: <Handle _ProactorBasePipeTransport._call_connection_lost(None)>
+Traceback (most recent call last):
+  File "C:\Users\kartik\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+  File "C:\Users\kartik\AppData\Local\Programs\Python\Python312\Lib\asyncio\proactor_events.py", line 165, in _call_connection_lost
+    self._sock.shutdown(socket.SHUT_RDWR)
+ConnectionResetError: [WinError 10054] An existing connection was forcibly closed by the remote host
+2026-07-05 20:30:12,319 WARNING websocket.delta_client: Delta WebSocket disconnected: no close frame received or sent
+2026-07-05 21:20:20,667 WARNING websocket.delta_client: Delta WebSocket disconnected: no close frame received or sent
+2026-07-05 22:48:58,272 WARNING websocket.delta_client: Delta WebSocket disconnected: [Errno 11001] getaddrinfo failed
+2026-07-06 00:09:45,407 WARNING websocket.delta_client: Delta WebSocket disconnected: no close frame received or sent
+2026-07-06 07:20:05,764 WARNING websocket.delta_client: Delta WebSocket disconnected: [Errno 11001] getaddrinfo failed
+2026-07-07 11:07:51,115 WARNING websocket.delta_client: Delta WebSocket disconnected: [Errno 11001] getaddrinfo failed
