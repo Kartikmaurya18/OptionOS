@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 
 import { StatusBadge } from "@/components/StatusBadge";
+import { useAssets } from "@/hooks/useAssets";
 import { useHeaderStats } from "@/hooks/useHeaderStats";
+import { switchAsset } from "@/services/socket";
+import { cn } from "@/lib/utils";
 import { formatExpiry, formatPrice, formatRelativeTime } from "@/utils/format";
 
 function useTick(intervalMs: number): void {
@@ -21,6 +24,30 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
+function AssetSwitcher({ current }: { current: string }) {
+  const assets = useAssets();
+  if (assets.length <= 1) return null;
+
+  return (
+    <div className="flex items-center gap-1 rounded-md border border-border bg-surface-raised p-0.5">
+      {assets.map((asset) => (
+        <button
+          key={asset}
+          type="button"
+          onClick={() => switchAsset(asset)}
+          disabled={asset === current}
+          className={cn(
+            "rounded px-2.5 py-1 text-xs font-semibold tracking-wide transition-colors",
+            asset === current ? "bg-surface text-accent" : "text-muted hover:text-foreground",
+          )}
+        >
+          {asset}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function Header() {
   const stats = useHeaderStats();
   useTick(1000); // re-render every second so "last updated Xs ago" stays fresh
@@ -28,11 +55,14 @@ export function Header() {
   return (
     <header className="sticky top-0 z-20 flex flex-wrap items-center gap-x-8 gap-y-3 border-b border-border bg-surface px-6 py-4">
       <div>
-        <div className="text-sm font-semibold tracking-wide text-foreground">BTC Options Straddle</div>
+        <div className="flex items-center gap-2 text-sm font-semibold tracking-wide text-foreground">
+          {stats.asset} Options Straddle
+          <AssetSwitcher current={stats.asset} />
+        </div>
         <div className="text-xs text-muted">Live via Delta Exchange</div>
       </div>
 
-      <Stat label="BTC Spot" value={stats.spotPrice != null ? `$${formatPrice(stats.spotPrice)}` : "--"} />
+      <Stat label={`${stats.asset} Spot`} value={stats.spotPrice != null ? `$${formatPrice(stats.spotPrice)}` : "--"} />
       <Stat label="Expiry" value={formatExpiry(stats.expiry)} />
       <Stat label="Strikes" value={String(stats.strikeCount)} />
       <Stat label="Last Update" value={formatRelativeTime(stats.lastMessageTime)} />

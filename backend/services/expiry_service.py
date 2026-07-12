@@ -9,12 +9,12 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 
-async def fetch_option_products(client: httpx.AsyncClient) -> list[dict]:
-    """Fetch all live BTC call/put option products from Delta's REST API."""
+async def fetch_option_products(client: httpx.AsyncClient, asset: str) -> list[dict]:
+    """Fetch all live call/put option products for `asset` from Delta's REST API."""
     params = {
         "contract_types": "call_options,put_options",
         "states": "live",
-        "underlying_asset_symbols": settings.underlying,
+        "underlying_asset_symbols": asset,
     }
     resp = await client.get(f"{settings.delta_rest_url}/v2/products", params=params)
     resp.raise_for_status()
@@ -34,10 +34,11 @@ def _expiry_from_symbol(symbol: str) -> Optional[tuple[str, datetime]]:
     return expiry_key, expiry_dt
 
 
-async def resolve_nearest_expiry(client: httpx.AsyncClient) -> tuple[str, list[dict]]:
-    """Group live BTC option products by expiry and return the soonest
-    upcoming expiry (ddmmyy) along with just that expiry's products."""
-    products = await fetch_option_products(client)
+async def resolve_nearest_expiry(client: httpx.AsyncClient, asset: str) -> tuple[str, list[dict]]:
+    """Group `asset`'s live option products by expiry and return the
+    soonest upcoming expiry (ddmmyy) along with just that expiry's
+    products."""
+    products = await fetch_option_products(client, asset)
 
     now = datetime.utcnow()
     by_expiry: dict[str, list[dict]] = {}
@@ -53,11 +54,12 @@ async def resolve_nearest_expiry(client: httpx.AsyncClient) -> tuple[str, list[d
 
     upcoming = {k: v for k, v in expiry_dates.items() if v >= now}
     if not upcoming:
-        raise RuntimeError("No upcoming BTC option expiries found on Delta Exchange")
+        raise RuntimeError(f"No upcoming {asset} option expiries found on Delta Exchange")
 
     nearest_key = min(upcoming, key=lambda k: upcoming[k])
     logger.info(
-        "Resolved nearest BTC options expiry: %s (%d strikes' worth of products)",
+        "Resolved nearest %s options expiry: %s (%d strikes' worth of products)",
+        asset,
         nearest_key,
         len(by_expiry[nearest_key]),
     )

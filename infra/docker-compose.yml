@@ -1,0 +1,25 @@
+name: straddle
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: straddle-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    # Published on 16379, not the default 6379 -- this dev machine already
+    # has an unrelated project's Redis bound to the default port. 16379 is
+    # only host-side; anything running inside this compose network (once
+    # the backend is containerized too, see infra/docker-compose backend
+    # service added in a later phase) reaches it as redis:6379.
+    ports:
+      - "16379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - straddle
+
+networks:
+  straddle:
+    name: straddle-net

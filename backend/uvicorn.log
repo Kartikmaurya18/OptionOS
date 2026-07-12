@@ -177,3 +177,8 @@ ConnectionResetError: [WinError 10054] An existing connection was forcibly close
 2026-07-06 00:09:45,407 WARNING websocket.delta_client: Delta WebSocket disconnected: no close frame received or sent
 2026-07-06 07:20:05,764 WARNING websocket.delta_client: Delta WebSocket disconnected: [Errno 11001] getaddrinfo failed
 2026-07-07 11:07:51,115 WARNING websocket.delta_client: Delta WebSocket disconnected: [Errno 11001] getaddrinfo failed
+2026-07-07 16:16:45,055 WARNING websocket.delta_client: Delta WebSocket disconnected: no close frame received or sent
+2026-07-07 16:23:32,663 WARNING websocket.delta_client: Delta WebSocket disconnected: no close frame received or sent
+2026-07-07 17:21:22,146 WARNING websocket.delta_client: Delta WebSocket disconnected: no close frame received or sent
+2026-07-07 18:48:26,008 WARNING websocket.delta_client: Delta WebSocket disconnected: no close frame received or sent
+2026-07-07 18:59:12,943 WARNING websocket.delta_client: Delta WebSocket disconnected: [Errno 11001] getaddrinfo failed

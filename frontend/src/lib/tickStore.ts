@@ -9,7 +9,13 @@
 // around 5-10MB. IndexedDB is async, comfortably handles this volume, and
 // its timestamp index lets the 24h eviction sweep run as a cheap
 // range-delete instead of reading everything back into memory.
+//
+// Holds ticks for one asset at a time, mirroring optionStore -- switchAsset()
+// clears the in-memory buffers and re-hydrates from IndexedDB scoped to the
+// newly selected asset, so a BTC strike's history never bleeds into an ETH
+// chart (or vice versa) after switching.
 
+import { DEFAULT_ASSET } from "@/services/optionStore";
 import type { ServerMessage } from "@/types/options";
 
 export interface Tick {
@@ -18,6 +24,7 @@ export interface Tick {
 }
 
 interface StoredTick extends Tick {
+  asset: string;
   strike: number;
 }
 
@@ -34,9 +41,12 @@ const EVICTION_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 const hasIndexedDb = typeof indexedDB !== "undefined";
 
 class TickStore {
-  // Rolling in-memory buffer per strike. Ticks arrive in non-decreasing
-  // timestamp order (real-time feed), so eviction is just trimming the
-  // front once entries age out -- no need to re-scan the whole array.
+  private asset: string;
+
+  // Rolling in-memory buffer per strike, for the current asset only.
+  // Ticks arrive in non-decreasing timestamp order (real-time feed), so
+  // eviction is just trimming the front once entries age out -- no need to
+  // re-scan the whole array.
   private buffers = new Map<number, Tick[]>();
 
   // Bumped on every recordTick for a strike; lets consumers (see
@@ -52,13 +62,34 @@ class TickStore {
 
   private dbPromise: Promise<IDBDatabase> | null = null;
 
-  constructor() {
+  constructor(initialAsset: string) {
+    this.asset = initialAsset;
     if (hasIndexedDb) {
       this.openDb()
         .then((db) => this.hydrateAll(db))
         .catch((err: unknown) => console.error("tickStore: failed to hydrate from IndexedDB", err));
       setInterval(() => void this.flush(), FLUSH_INTERVAL_MS);
       setInterval(() => void this.evictOld(), EVICTION_SWEEP_INTERVAL_MS);
+    }
+  }
+
+  /** Called by services/socket.ts right before it sends the subscribe
+   * command for a new asset -- clears in-memory buffers immediately, then
+   * re-hydrates from IndexedDB scoped to the new asset (any locally cached
+   * history for it from an earlier session). */
+  switchAsset(asset: string): void {
+    if (asset === this.asset) return;
+    this.asset = asset;
+    this.buffers = new Map();
+    this.writeQueue = [];
+    const strikesToNotify = [...this.versions.keys()];
+    this.versions = new Map();
+    for (const strike of strikesToNotify) for (const listener of this.listeners.get(strike) ?? []) listener();
+
+    if (hasIndexedDb) {
+      this.openDb()
+        .then((db) => this.hydrateAll(db))
+        .catch((err: unknown) => console.error("tickStore: failed to hydrate from IndexedDB", err));
     }
   }
 
@@ -82,6 +113,8 @@ class TickStore {
 
   /** Fan-out point called from services/socket.ts for every inbound message. */
   ingest(message: ServerMessage): void {
+    if ("asset" in message && message.asset !== this.asset) return;
+
     const now = Date.now();
     if (message.type === "snapshot") {
       for (const row of message.rows) {
@@ -105,7 +138,7 @@ class TickStore {
     while (evictCount < buffer.length && buffer[evictCount].timestamp < cutoff) evictCount += 1;
     if (evictCount > 0) buffer.splice(0, evictCount);
 
-    if (hasIndexedDb) this.writeQueue.push({ strike, timestamp, value });
+    if (hasIndexedDb) this.writeQueue.push({ asset: this.asset, strike, timestamp, value });
 
     this.versions.set(strike, this.getVersion(strike) + 1);
     for (const listener of this.listeners.get(strike) ?? []) listener();
@@ -128,9 +161,13 @@ class TickStore {
     return this.dbPromise;
   }
 
-  /** Hydrates every strike's in-memory buffer from IndexedDB on startup, so a
-   * page refresh doesn't lose the current rolling window of history. */
+  /** Hydrates every strike's in-memory buffer from IndexedDB for the
+   * current asset, so a page refresh (or an asset switch back to one
+   * already visited this session) doesn't lose the rolling window of
+   * history. Records written before the `asset` field existed simply won't
+   * match and age out via the normal eviction sweep. */
   private async hydrateAll(db: IDBDatabase): Promise<void> {
+    const asset = this.asset;
     const cutoff = Date.now() - ROLLING_WINDOW_MS;
     const tx = db.transaction(STORE_NAME, "readonly");
     const index = tx.objectStore(STORE_NAME).index("timestamp");
@@ -146,16 +183,20 @@ class TickStore {
           return;
         }
         const record = cursor.value as StoredTick;
-        let arr = loaded.get(record.strike);
-        if (!arr) {
-          arr = [];
-          loaded.set(record.strike, arr);
+        if (record.asset === asset) {
+          let arr = loaded.get(record.strike);
+          if (!arr) {
+            arr = [];
+            loaded.set(record.strike, arr);
+          }
+          arr.push({ timestamp: record.timestamp, value: record.value });
         }
-        arr.push({ timestamp: record.timestamp, value: record.value });
         cursor.continue();
       };
       cursorRequest.onerror = () => reject(cursorRequest.error as unknown);
     });
+
+    if (asset !== this.asset) return; // switched again while this hydrate was in flight
 
     for (const [strike, ticks] of loaded) {
       ticks.sort((a, b) => a.timestamp - b.timestamp);
@@ -211,4 +252,4 @@ class TickStore {
   }
 }
 
-export const tickStore = new TickStore();
+export const tickStore = new TickStore(DEFAULT_ASSET);

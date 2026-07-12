@@ -12,15 +12,21 @@ import type {
 type Listener = () => void;
 
 /**
- * Central client-side option map: strike -> OptionRow, mirroring the
- * backend's store. Rows are REPLACED (not mutated in place) on update so
- * useSyncExternalStore's Object.is check sees a new reference only for the
- * strike that actually changed -- every other strike's Map entry keeps its
- * old reference, so its subscriber sees "nothing changed" and skips
- * re-rendering. That's what makes "only the affected row re-renders" hold
- * at the React level, not just conceptually.
+ * Central client-side option map: strike -> OptionRow, mirroring one
+ * asset's shard of the backend's store. Rows are REPLACED (not mutated in
+ * place) on update so useSyncExternalStore's Object.is check sees a new
+ * reference only for the strike that actually changed -- every other
+ * strike's Map entry keeps its old reference, so its subscriber sees
+ * "nothing changed" and skips re-rendering. That's what makes "only the
+ * affected row re-renders" hold at the React level, not just conceptually.
+ *
+ * Holds exactly one asset's data at a time (not all configured assets
+ * simultaneously) -- switchAsset() clears everything and starts fresh,
+ * mirroring the backend dropping the old subscription and sending a new
+ * snapshot for the newly selected asset.
  */
 class OptionStore {
+  private asset: string;
   private rows = new Map<number, OptionRow>();
   private strikes: number[] = [];
   private rowListeners = new Map<number, Set<Listener>>();
@@ -39,7 +45,35 @@ class OptionStore {
   private everConnectedSocket = false;
   private localReconnectAttempts = 0;
 
-  private headerSnapshot: HeaderStats = this.computeHeaderSnapshot();
+  private headerSnapshot: HeaderStats;
+
+  constructor(initialAsset: string) {
+    this.asset = initialAsset;
+    this.headerSnapshot = this.computeHeaderSnapshot();
+  }
+
+  // ---- asset selection ----
+
+  getAsset(): string {
+    return this.asset;
+  }
+
+  /** Called by services/socket.ts right before it sends the subscribe
+   * command for a new asset -- clears every strike/row so nothing from the
+   * previous asset lingers on screen while the new snapshot is in flight. */
+  switchAsset(asset: string): void {
+    if (asset === this.asset) return;
+    this.asset = asset;
+    this.rows = new Map();
+    this.strikes = [];
+    this.spotPrice = null;
+    this.expiry = null;
+    this.strikeCount = 0;
+
+    for (const strike of this.rowListeners.keys()) this.notifyRow(strike);
+    this.notifyStrikes();
+    this.notifyHeader();
+  }
 
   // ---- rows ----
 
@@ -106,6 +140,7 @@ class OptionStore {
     }
 
     return {
+      asset: this.asset,
       spotPrice: this.spotPrice,
       expiry: this.expiry,
       strikeCount: this.strikeCount,
@@ -142,6 +177,12 @@ class OptionStore {
   // ---- message application ----
 
   dispatch(message: ServerMessage): void {
+    // The gateway filters by subscription server-side, but a message for
+    // the asset we just switched away from can still be in flight when we
+    // switch -- drop it locally rather than let it repopulate a store the
+    // user just cleared.
+    if ("asset" in message && message.asset !== this.asset) return;
+
     switch (message.type) {
       case "snapshot":
         this.applySnapshot(message);
@@ -155,6 +196,8 @@ class OptionStore {
       case "status":
         this.applyStatus(message);
         break;
+      case "candle_update":
+        break; // handled by tickStore, not the row/table store
     }
   }
 
@@ -207,4 +250,5 @@ class OptionStore {
   }
 }
 
-export const optionStore = new OptionStore();
+export const DEFAULT_ASSET = "BTC";
+export const optionStore = new OptionStore(DEFAULT_ASSET);

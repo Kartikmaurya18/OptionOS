@@ -1,46 +1,37 @@
 import asyncio
-import json
 import logging
 import time
 from typing import Optional
 
 import httpx
+import orjson
 import websockets
 from websockets.exceptions import ConnectionClosed
 
-from config import settings
-from schemas.ws_messages import OptionRowPayload, RowUpdateMessage, SpotUpdateMessage, StatusMessage
+from config import settings, spot_index_symbol
+from schemas.ws_messages import (
+    CandlePayload,
+    CandleUpdateMessage,
+    OptionRowPayload,
+    RowUpdateMessage,
+    SpotUpdateMessage,
+    StatusMessage,
+)
+from services.candle_engine import Candle, CandleEngine
 from services.delta_rest import fetch_ticker_snapshot
-from services.expiry_service import resolve_nearest_expiry
+from services.message_bus import RedisPublisher
 from services.option_store import OptionStore
-from websocket.manager import ConnectionManager
+from services.symbol_resolver import SymbolResolver
 
 logger = logging.getLogger(__name__)
 
 
-def parse_option_symbol(symbol: str) -> Optional[tuple[str, float]]:
-    """Delta option symbols follow '<C|P>-<underlying>-<strike>-<expiry ddmmyy>',
-    e.g. 'C-BTC-95000-040726'. Returns (option_type, strike), or None if the
-    symbol isn't a BTC option (e.g. it's the perpetual/index symbol, or
-    malformed) so callers can safely ignore it.
-    """
-    parts = symbol.split("-")
-    if len(parts) != 4:
-        return None
-    option_type, underlying, strike_str, _expiry = parts
-    if option_type not in ("C", "P") or underlying != settings.underlying:
-        return None
-    try:
-        strike = float(strike_str)
-    except ValueError:
-        return None
-    return option_type, strike
-
-
 class DeltaStreamStatus:
-    """Live connection state surfaced to the frontend header bar."""
+    """Live connection state surfaced to the frontend header bar, for one
+    asset's shard."""
 
-    def __init__(self) -> None:
+    def __init__(self, asset: str) -> None:
+        self.asset = asset
         self.connected = False
         self.reconnect_attempts = 0
         self.last_message_time: Optional[float] = None
@@ -49,6 +40,7 @@ class DeltaStreamStatus:
 
     def to_dict(self) -> dict:
         return StatusMessage(
+            asset=self.asset,
             connected=self.connected,
             reconnectAttempts=self.reconnect_attempts,
             lastMessageTime=self.last_message_time,
@@ -57,21 +49,56 @@ class DeltaStreamStatus:
         ).model_dump()
 
 
-class DeltaOptionsStreamer:
-    """Owns the upstream connection to Delta Exchange's public WebSocket.
 
-    Resolves the nearest BTC options expiry, subscribes to v2/ticker for
-    every call/put symbol in that chain plus the BTC spot index, keeps
-    OptionStore updated, and pushes single-row diffs to the frontend via
-    ConnectionManager. Runs forever, reconnecting with exponential backoff
-    on any drop (network error, Delta restart, etc).
+class DeltaOptionsStreamer:
+    """Owns the upstream connection to Delta Exchange's public WebSocket for
+    one asset (one shard -- see Part 1/Part 4 of the architecture doc: one
+    instance of this class runs per configured asset, each with its own
+    OptionStore and CandleEngine, so a reconnect storm on one asset's feed
+    never touches another's).
+
+    Resolves the nearest options expiry for this asset, subscribes to
+    v2/ticker for every call/put symbol in that chain plus the spot index,
+    keeps OptionStore updated, and publishes single-row diffs to Redis --
+    tagged with `asset` -- for any number of WebSocket Gateway instances to
+    pick up and filter (see websocket/redis_bridge.py and
+    websocket/manager.py). This class has no idea how many gateways exist,
+    or whether any browser tab is even watching. Runs forever, reconnecting
+    with exponential backoff on any drop (network error, Delta restart,
+    etc).
     """
 
-    def __init__(self, store: OptionStore, manager: ConnectionManager) -> None:
+    def __init__(self, asset: str, store: OptionStore, publisher: RedisPublisher) -> None:
+        self.asset = asset
         self.store = store
-        self.manager = manager
-        self.status = DeltaStreamStatus()
+        self.publisher = publisher
+        self.status = DeltaStreamStatus(asset)
+        self.resolver = SymbolResolver(underlying=asset)
+        self.candles = CandleEngine()
+        self.candles.on_close(self._on_candle_close)
         self._symbols: list[str] = []
+        self._bucket_closer_tasks: list[asyncio.Task] = []
+
+    def _on_candle_close(self, key: str, timeframe: str, candle: Candle) -> None:
+        """CandleEngine callback -- fires synchronously whenever a bucket
+        rolls over. Scheduled as a task rather than awaited in place since
+        this runs inside CandleEngine's own call stack, not the WS loop."""
+        message = CandleUpdateMessage(
+            asset=self.asset,
+            strike=float(key),
+            timeframe=timeframe,
+            candle=CandlePayload(**candle.to_dict()),
+        ).model_dump()
+        asyncio.create_task(self.publisher.publish(message))
+
+    def _start_candle_bucket_closers(self) -> None:
+        """One lightweight background task per timeframe (not per
+        instrument) that closes silent buckets on a wall-clock schedule.
+        Started once, on the first successful bootstrap."""
+        if self._bucket_closer_tasks:
+            return
+        for timeframe in self.candles.timeframes:
+            self._bucket_closer_tasks.append(asyncio.create_task(self.candles.run_bucket_closer(timeframe)))
 
     async def run_forever(self) -> None:
         delay = settings.ws_reconnect_min_delay
@@ -80,6 +107,7 @@ class DeltaOptionsStreamer:
                 try:
                     if self.status.expiry is None:
                         await self._bootstrap(http_client)
+                        self._start_candle_bucket_closers()
 
                     await self._connect_and_stream()
                     delay = settings.ws_reconnect_min_delay
@@ -90,40 +118,31 @@ class DeltaOptionsStreamer:
 
                 self.status.connected = False
                 self.status.reconnect_attempts += 1
-                await self.manager.broadcast(self.status.to_dict())
+                await self.publisher.publish(self.status.to_dict())
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, settings.ws_reconnect_max_delay)
 
     async def _bootstrap(self, http_client: httpx.AsyncClient) -> None:
-        """One-time setup: resolve the nearest expiry, register every strike
-        in the store, and seed it with a REST snapshot before streaming."""
-        expiry, products = await resolve_nearest_expiry(http_client)
-        self.status.expiry = expiry
-        self._symbols = self._index_products(products)
+        """One-time setup: resolve the nearest expiry via SymbolResolver,
+        register every strike in the store, and seed it with a REST snapshot
+        before streaming."""
+        index = await self.resolver.resolve(http_client)
+        self.status.expiry = index.expiry
+        for strike in index.strikes:
+            self.store.ensure_row(
+                strike,
+                index.call_symbol_by_strike.get(strike, ""),
+                index.put_symbol_by_strike.get(strike, ""),
+            )
+        self._symbols = index.all_symbols
         self.status.strike_count = self.store.row_count()
 
         try:
-            tickers = await fetch_ticker_snapshot(http_client, self._symbols)
+            tickers = await fetch_ticker_snapshot(http_client, self.asset, self._symbols)
             for ticker in tickers:
                 self._apply_ticker(ticker, broadcast=False)
         except Exception:
             logger.exception("Failed to seed initial ticker snapshot from REST; continuing with WS only")
-
-    def _index_products(self, products: list[dict]) -> list[str]:
-        """Registers a store row per strike and returns every option symbol
-        (call + put) that should be subscribed to on the WebSocket."""
-        symbols: list[str] = []
-        for product in products:
-            symbol = product.get("symbol", "")
-            parsed = parse_option_symbol(symbol)
-            if parsed is None:
-                continue
-            option_type, strike = parsed
-            symbols.append(symbol)
-            if option_type == "C":
-                put_symbol = symbol.replace("C-", "P-", 1)
-                self.store.ensure_row(strike, symbol, put_symbol)
-        return symbols
 
     async def _connect_and_stream(self) -> None:
         subscribe_payload = {
@@ -132,7 +151,7 @@ class DeltaOptionsStreamer:
                 "channels": [
                     {
                         "name": "v2/ticker",
-                        "symbols": self._symbols + [settings.spot_index_symbol],
+                        "symbols": self._symbols + [spot_index_symbol(self.asset)],
                     }
                 ]
             },
@@ -142,10 +161,10 @@ class DeltaOptionsStreamer:
             ping_interval=settings.ws_ping_interval,
             ping_timeout=settings.ws_ping_interval,
         ) as ws:
-            await ws.send(json.dumps(subscribe_payload))
+            await ws.send(orjson.dumps(subscribe_payload).decode("utf-8"))
             self.status.connected = True
             self.status.reconnect_attempts = 0
-            await self.manager.broadcast(self.status.to_dict())
+            await self.publisher.publish(self.status.to_dict())
 
             async for raw_message in ws:
                 self.status.last_message_time = time.time()
@@ -154,8 +173,8 @@ class DeltaOptionsStreamer:
                 # ticker payloads matter here, and malformed frames are
                 # dropped rather than crashing the stream.
                 try:
-                    message = json.loads(raw_message)
-                except json.JSONDecodeError:
+                    message = orjson.loads(raw_message)
+                except orjson.JSONDecodeError:
                     logger.warning("Dropped malformed (non-JSON) WebSocket message")
                     continue
 
@@ -164,7 +183,7 @@ class DeltaOptionsStreamer:
 
                 update = self._apply_ticker(message, broadcast=True)
                 if update is not None:
-                    await self.manager.broadcast(update)
+                    await self.publisher.publish(update)
 
     def _apply_ticker(self, ticker: dict, broadcast: bool) -> Optional[dict]:
         """Parses one Delta ticker payload, updates the store, and returns
@@ -172,18 +191,18 @@ class DeltaOptionsStreamer:
         e.g. an incomplete call/put pair or an unrecognized symbol)."""
         symbol = ticker.get("symbol", "")
 
-        if symbol == settings.spot_index_symbol:
+        if symbol == spot_index_symbol(self.asset):
             spot = ticker.get("spot_price") or ticker.get("close")
             if spot is None:
                 return None
             spot = float(spot)
             self.store.set_spot_price(spot)
-            return SpotUpdateMessage(spotPrice=spot).model_dump() if broadcast else None
+            return SpotUpdateMessage(asset=self.asset, spotPrice=spot).model_dump() if broadcast else None
 
-        parsed = parse_option_symbol(symbol)
-        if parsed is None:
+        meta = self.resolver.index.lookup(symbol) if self.resolver.index else None
+        if meta is None:
             return None
-        option_type, strike = parsed
+        option_type, strike = meta.option_type, meta.strike
 
         ltp = ticker.get("close")
         if ltp is None:
@@ -201,10 +220,16 @@ class DeltaOptionsStreamer:
         if not row.is_complete:
             return None  # ignore incomplete call/put pairs until both legs exist
 
+        # feed the straddle into CandleEngine regardless of `broadcast` so
+        # REST-seeded bootstrap ticks warm the current bucket too, not just
+        # live WS ticks
+        self.candles.on_tick(str(strike), row.straddle, time.time() * 1000)
+
         if not broadcast:
             return None
 
         return RowUpdateMessage(
+            asset=self.asset,
             updatedField="call" if option_type == "C" else "put",
             row=OptionRowPayload(**row.to_dict()),
         ).model_dump()

@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
-@dataclass
+@dataclass(slots=True)
 class OptionRow:
     """One strike's worth of state: its call leg, put leg, and the derived
     straddle. Mutated in place by OptionStore so a price tick only ever

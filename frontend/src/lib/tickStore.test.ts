@@ -24,6 +24,7 @@ describe("tickStore", () => {
   it("records a tick per strike from a snapshot, skipping null straddles", () => {
     const snapshot: SnapshotMessage = {
       type: "snapshot",
+      asset: "BTC",
       expiry: "050726",
       spotPrice: 50000,
       rows: [row(100000, 250.5), row(105000, null)],
@@ -41,6 +42,7 @@ describe("tickStore", () => {
 
     const update: RowUpdateMessage = {
       type: "row_update",
+      asset: "BTC",
       updatedField: "call",
       row: row(100000, 260),
     };
@@ -57,7 +59,7 @@ describe("tickStore", () => {
     const unsubA = tickStore.subscribe(200000, () => (notifiedA += 1));
     const unsubB = tickStore.subscribe(300000, () => (notifiedB += 1));
 
-    tickStore.ingest({ type: "row_update", updatedField: "put", row: row(200000, 10) });
+    tickStore.ingest({ type: "row_update", asset: "BTC", updatedField: "put", row: row(200000, 10) });
 
     expect(notifiedA).toBe(1);
     expect(notifiedB).toBe(0);
