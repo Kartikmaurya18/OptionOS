@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: straddle-backend
+    metrics_path: /metrics
+    static_configs:
+      # The backend runs on the host machine (not in this compose network)
+      # for now -- host.docker.internal is Docker Desktop's DNS name for
+      # "the machine this container is running on".
+      - targets: ["host.docker.internal:8000"]

@@ -102,3 +102,23 @@ export function buildCandles(ticks: Tick[], timeframe: Timeframe): Candle[] {
 
   return candles;
 }
+
+/**
+ * Merges server-backfilled historical candles with the live, tick-derived
+ * series for the same instrument/timeframe. The live series (from
+ * useStraddleCandles/tickStore) covers everything since this tab
+ * connected; historical candles (from useCandleBackfill, served out of
+ * ClickHouse) fill in everything before that.
+ *
+ * Historical candles at or after the live series' first bucket are
+ * dropped rather than merged/overlapped -- the live series is always the
+ * source of truth for any bucket it covers, since it reflects this
+ * session's actual ticks, not a persisted (and possibly-still-forming)
+ * approximation of the same bucket.
+ */
+export function mergeCandleSeries(historical: Candle[], live: Candle[]): Candle[] {
+  if (live.length === 0) return historical;
+  const liveStart = live[0].time;
+  const older = historical.filter((candle) => candle.time < liveStart);
+  return [...older, ...live];
+}

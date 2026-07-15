@@ -7,3 +7,6 @@ pydantic-settings>=2.3
 orjson>=3.10
 uvloop>=0.19; sys_platform != "win32"
 redis>=5.0
+clickhouse-connect>=0.8
+aiohttp>=3.10  # required by clickhouse-connect's async client
+prometheus-client>=0.20

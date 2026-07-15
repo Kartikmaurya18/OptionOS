@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildCandles, type Tick } from "@/lib/candleBuilder";
+import { buildCandles, mergeCandleSeries, type Candle, type Tick } from "@/lib/candleBuilder";
 
 const M = 60_000; // 1 minute in ms
 // Pick a base that's already minute-aligned so bucket math is easy to reason about.
@@ -86,5 +86,39 @@ describe("buildCandles", () => {
       close: 160,
       tickCount: 1,
     });
+  });
+});
+
+function candle(time: number, close: number): Candle {
+  return { time, open: close, high: close, low: close, close, tickCount: 1 };
+}
+
+describe("mergeCandleSeries", () => {
+  it("returns historical candles unchanged when there's no live data yet", () => {
+    const historical = [candle(BASE, 100), candle(BASE + M, 105)];
+    expect(mergeCandleSeries(historical, [])).toEqual(historical);
+  });
+
+  it("returns the live series unchanged when there's no historical data", () => {
+    const live = [candle(BASE, 100)];
+    expect(mergeCandleSeries([], live)).toEqual(live);
+  });
+
+  it("prepends only the historical candles strictly before the live series' first bucket", () => {
+    const historical = [candle(BASE, 100), candle(BASE + M, 105), candle(BASE + 2 * M, 110)];
+    const live = [candle(BASE + 2 * M, 999), candle(BASE + 3 * M, 999)]; // live disagrees with historical here on purpose
+
+    const merged = mergeCandleSeries(historical, live);
+
+    expect(merged).toEqual([candle(BASE, 100), candle(BASE + M, 105), candle(BASE + 2 * M, 999), candle(BASE + 3 * M, 999)]);
+  });
+
+  it("live always wins for any bucket it covers, even if historical has more/different buckets there", () => {
+    const historical = [candle(BASE, 100), candle(BASE + M, 105), candle(BASE + 2 * M, 110)];
+    const live = [candle(BASE, 1), candle(BASE + M, 2)]; // live starts at the same time as historical
+
+    const merged = mergeCandleSeries(historical, live);
+
+    expect(merged).toEqual(live); // nothing from historical survives since live covers from BASE onward
   });
 });

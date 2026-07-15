@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: straddle
+data:
+  STRADDLE_ASSETS: '["BTC","ETH"]'
+  STRADDLE_UNDERLYING: "BTC"
+  STRADDLE_DELTA_REST_URL: "https://api.india.delta.exchange"
+  STRADDLE_DELTA_WS_URL: "wss://socket.india.delta.exchange"
+  # Service DNS names, not localhost/host.docker.internal -- inside the
+  # cluster, "redis" and "clickhouse" resolve via each Service's ClusterIP
+  # (see redis.yaml / clickhouse.yaml), the same way "prometheus" resolves
+  # for Grafana in the local docker-compose setup.
+  STRADDLE_REDIS_URL: "redis://redis:6379/0"
+  STRADDLE_CLICKHOUSE_HOST: "clickhouse"
+  STRADDLE_CLICKHOUSE_PORT: "8123"
+  STRADDLE_CLICKHOUSE_DATABASE: "straddle"
+  STRADDLE_CORS_ORIGINS: '["https://app.example.com"]'
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backend-secrets
+  namespace: straddle
+type: Opaque
+stringData:
+  # stringData (not data) accepts plain text here and K8s base64-encodes it
+  # on apply -- convenient for a manifest, but this file is NOT safe to
+  # commit with real values. In production, generate this Secret from a
+  # vault/CI secret store (e.g. `kubectl create secret ... --from-literal`
+  # in a pipeline, or a sealed-secrets/external-secrets controller) rather
+  # than checking real credentials into git at all.
+  STRADDLE_CLICKHOUSE_USER: "straddle"
+  STRADDLE_CLICKHOUSE_PASSWORD: "REPLACE_ME"

@@ -1,0 +1,45 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: straddle
+  namespace: straddle
+  annotations:
+    # Default proxy-read/send-timeout on nginx-ingress is 60s -- fine for a
+    # REST call, fatal for a WebSocket meant to stay open indefinitely. This
+    # raises it to 1h; the app's own ping/pong keepalive (see
+    # config.py's ws_ping_interval) is what actually keeps the connection
+    # alive within that window.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    cert-manager.io/cluster-issuer: letsencrypt-prod # if using cert-manager for TLS
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - app.example.com
+      secretName: straddle-tls
+  rules:
+    - host: app.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80

@@ -1,0 +1,46 @@
+# Dev/staging-grade: single pod, no replication, no failover. If this pod
+# dies, Kubernetes restarts it and everything reconnects (the app already
+# handles Redis being briefly unavailable), but any unread stream entries
+# lost with it are gone. For production, point STRADDLE_REDIS_URL (see
+# backend-config.yaml) at a managed Redis instead, or a proper Helm chart
+# with Sentinel/Cluster -- this manifest is intentionally the simple case.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: straddle
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          args: ["redis-server", "--save", "", "--appendonly", "no"]
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: straddle
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379

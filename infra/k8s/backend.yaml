@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: straddle
+spec:
+  # Pinned at 1, deliberately -- NOT safe to scale horizontally yet.
+  #
+  # This one Deployment still runs DeltaOptionsStreamer (Market Data
+  # Service) and the WebSocket Gateway in the same process (see main.py).
+  # DeltaOptionsStreamer is a singleton per asset: it opens one upstream
+  # connection to Delta Exchange per asset and is the only writer to that
+  # asset's OptionStore. Running N replicas of *this* Deployment would mean
+  # N independent Delta connections and N independent publishes of every
+  # tick onto Redis -- browsers would see every price duplicated N times,
+  # and Delta would see N times the subscription load for no reason.
+  #
+  # Scaling the Gateway (which *is* safe to run at N copies -- it's
+  # stateless, see websocket/manager.py) requires first splitting it into
+  # its own Deployment, physically separate from Market Data Service, per
+  # Part 9/Phase 4 of the architecture doc. That split hasn't been done
+  # yet -- this manifest reflects the code as it actually exists today, not
+  # an aspirational topology.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: backend
+          image: straddle-backend:latest # replace with your registry/tag in CI
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: backend-config
+            - secretRef:
+                name: backend-secrets
+          # Liveness: is the process wedged? Restart it if so.
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          # Readiness: is it ready to receive traffic? A pod mid-bootstrap
+          # (still resolving the option chain from Delta's REST API) is
+          # alive but shouldn't get WebSocket connections routed to it yet.
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: straddle
+spec:
+  selector:
+    app: backend
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000

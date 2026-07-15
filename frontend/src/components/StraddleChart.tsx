@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CandlestickSeries,
   createChart,
@@ -11,10 +11,12 @@ import {
 } from "lightweight-charts";
 
 import { Button } from "@/components/ui/button";
+import { useCandleBackfill } from "@/hooks/useCandleBackfill";
+import { useHeaderStats } from "@/hooks/useHeaderStats";
 import { useOptionRow } from "@/hooks/useOptionRow";
 import { useStraddleCandles } from "@/hooks/useStraddleCandles";
 import { useStrikeList } from "@/hooks/useStrikeList";
-import type { Candle, Timeframe } from "@/lib/candleBuilder";
+import { mergeCandleSeries, type Candle, type Timeframe } from "@/lib/candleBuilder";
 import { cn } from "@/lib/utils";
 import { formatPrice, formatStrike } from "@/utils/format";
 
@@ -48,6 +50,7 @@ function themeColor(variable: string, fallback: string): string {
 }
 
 export function StraddleChart() {
+  const { asset } = useHeaderStats();
   const strikes = useStrikeList("", "strike", "asc");
   const [strike, setStrike] = useState<number | null>(null);
   const [timeframe, setTimeframe] = useState<Timeframe>("1m");
@@ -58,7 +61,13 @@ export function StraddleChart() {
   }, [strikes, strike]);
 
   const row = useOptionRow(strike ?? -1);
-  const candles = useStraddleCandles(strike ?? -1, timeframe);
+  const live = useStraddleCandles(strike ?? -1, timeframe);
+  const backfill = useCandleBackfill(asset, strike ?? -1, timeframe);
+  // Historical (ClickHouse, via HistoricalBackfillService) fills in
+  // everything before this tab connected; live (ticks accumulated this
+  // session) always wins for any bucket it covers -- see
+  // mergeCandleSeries's doc comment for why.
+  const candles = useMemo(() => mergeCandleSeries(backfill, live), [backfill, live]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);

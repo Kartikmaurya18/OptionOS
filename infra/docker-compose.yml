@@ -20,6 +20,65 @@ services:
     networks:
       - straddle
 
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8-alpine
+    container_name: straddle-clickhouse
+    # Non-default host ports (18123 HTTP / 19000 native), same reasoning as
+    # Redis above -- keeps this project's containers from ever fighting
+    # another project's for a host port.
+    ports:
+      - "18123:8123"
+      - "19000:9000"
+    environment:
+      CLICKHOUSE_DB: straddle
+      CLICKHOUSE_USER: straddle
+      CLICKHOUSE_PASSWORD: straddle
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O", "/dev/null", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - straddle
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: straddle-prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    # 19090, not the default 9090 -- same "don't fight another project for
+    # a host port" reasoning as Redis/ClickHouse above.
+    ports:
+      - "19090:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - straddle
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: straddle-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+    ports:
+      - "13000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - straddle
+
 networks:
   straddle:
     name: straddle-net
+
+volumes:
+  clickhouse-data:

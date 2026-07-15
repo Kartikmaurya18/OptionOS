@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: clickhouse
+  namespace: straddle
+spec:
+  serviceName: clickhouse
+  replicas: 1
+  selector:
+    matchLabels:
+      app: clickhouse
+  template:
+    metadata:
+      labels:
+        app: clickhouse
+    spec:
+      containers:
+        - name: clickhouse
+          image: clickhouse/clickhouse-server:24.8-alpine
+          ports:
+            - containerPort: 8123 # HTTP (what clickhouse-connect uses)
+            - containerPort: 9000 # native protocol
+          env:
+            - name: CLICKHOUSE_DB
+              value: "straddle"
+            - name: CLICKHOUSE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secrets
+                  key: STRADDLE_CLICKHOUSE_USER
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secrets
+                  key: STRADDLE_CLICKHOUSE_PASSWORD
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/clickhouse
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 8123
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2000m"
+              memory: "4Gi"
+  # One PersistentVolumeClaim per pod, provisioned automatically and reused
+  # across restarts -- this is the actual "durable" part of durable
+  # storage; without it, a pod reschedule would start from an empty
+  # database and TickPersistenceService's whole history would vanish.
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi
+---
+# Headless service (clusterIP: None): gives the StatefulSet's pod a stable
+# DNS name ("clickhouse") instead of load-balancing across replicas -- the
+# right choice for a single-writer database, and what lets
+# backend-config.yaml's STRADDLE_CLICKHOUSE_HOST=clickhouse just work.
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickhouse
+  namespace: straddle
+spec:
+  clusterIP: None
+  selector:
+    app: clickhouse
+  ports:
+    - name: http
+      port: 8123
+    - name: native
+      port: 9000

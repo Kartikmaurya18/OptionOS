@@ -17,6 +17,13 @@ from schemas.ws_messages import (
     SpotUpdateMessage,
     StatusMessage,
 )
+from observability.metrics import (
+    candle_engine_active_keys,
+    delta_reconnects_total,
+    option_store_row_count,
+    tick_to_publish_seconds,
+    ticks_ingested_total,
+)
 from services.candle_engine import Candle, CandleEngine
 from services.delta_rest import fetch_ticker_snapshot
 from services.message_bus import RedisPublisher
@@ -118,6 +125,7 @@ class DeltaOptionsStreamer:
 
                 self.status.connected = False
                 self.status.reconnect_attempts += 1
+                delta_reconnects_total.labels(asset=self.asset).inc()
                 await self.publisher.publish(self.status.to_dict())
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, settings.ws_reconnect_max_delay)
@@ -136,6 +144,7 @@ class DeltaOptionsStreamer:
             )
         self._symbols = index.all_symbols
         self.status.strike_count = self.store.row_count()
+        option_store_row_count.labels(asset=self.asset).set(self.status.strike_count)
 
         try:
             tickers = await fetch_ticker_snapshot(http_client, self.asset, self._symbols)
@@ -167,7 +176,8 @@ class DeltaOptionsStreamer:
             await self.publisher.publish(self.status.to_dict())
 
             async for raw_message in ws:
-                self.status.last_message_time = time.time()
+                receive_time = time.time()
+                self.status.last_message_time = receive_time
 
                 # Delta sends heartbeats/other channel types too; only
                 # ticker payloads matter here, and malformed frames are
@@ -184,6 +194,7 @@ class DeltaOptionsStreamer:
                 update = self._apply_ticker(message, broadcast=True)
                 if update is not None:
                     await self.publisher.publish(update)
+                    tick_to_publish_seconds.labels(asset=self.asset).observe(time.time() - receive_time)
 
     def _apply_ticker(self, ticker: dict, broadcast: bool) -> Optional[dict]:
         """Parses one Delta ticker payload, updates the store, and returns
@@ -216,6 +227,7 @@ class DeltaOptionsStreamer:
             row = self.store.update_call(strike, symbol, ltp)
         else:
             row = self.store.update_put(strike, symbol, ltp)
+        ticks_ingested_total.labels(asset=self.asset).inc()
 
         if not row.is_complete:
             return None  # ignore incomplete call/put pairs until both legs exist
@@ -224,6 +236,7 @@ class DeltaOptionsStreamer:
         # REST-seeded bootstrap ticks warm the current bucket too, not just
         # live WS ticks
         self.candles.on_tick(str(strike), row.straddle, time.time() * 1000)
+        candle_engine_active_keys.labels(asset=self.asset).set(self.candles.active_count())
 
         if not broadcast:
             return None

@@ -22,9 +22,21 @@ class Settings(BaseSettings):
 
     # Redis is the fan-out seam between the Market Data Service (publisher)
     # and any number of WebSocket Gateway instances (subscribers) -- see
-    # services/message_bus.py.
+    # services/message_bus.py. Pub/Sub (redis_channel) is ephemeral, for the
+    # live gateway broadcast path; the Stream (redis_stream_key) is durable
+    # and consumer-group based, for TickPersistenceService.
     redis_url: str = "redis://localhost:6379/0"
     redis_channel: str = "ticks"
+    redis_stream_key: str = "ticks-stream"
+    redis_stream_maxlen: int = 200_000
+
+    # ClickHouse: durable tick + candle storage, queried by
+    # HistoricalBackfillService.
+    clickhouse_host: str = "localhost"
+    clickhouse_port: int = 18123
+    clickhouse_user: str = "straddle"
+    clickhouse_password: str = "straddle"
+    clickhouse_database: str = "straddle"
 
     model_config = SettingsConfigDict(env_prefix="STRADDLE_", env_file=".env")
 

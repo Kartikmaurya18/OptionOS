@@ -86,6 +86,11 @@ class CandleEngine:
     def get_active(self, key: str, timeframe: str) -> Optional[Candle]:
         return self._active.get((key, timeframe))
 
+    def active_count(self) -> int:
+        """How many (instrument, timeframe) candles are currently held in
+        memory -- a memory footprint proxy, exported as a metric."""
+        return len(self._active)
+
     def on_tick(self, key: str, price: float, ts_ms: float) -> None:
         for timeframe, bucket_ms in self.timeframes.items():
             self._apply(key, timeframe, bucket_ms, price, ts_ms)

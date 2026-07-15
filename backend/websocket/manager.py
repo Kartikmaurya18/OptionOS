@@ -4,6 +4,8 @@ import logging
 import orjson
 from fastapi import WebSocket
 
+from observability.metrics import gateway_connected_clients, gateway_dropped_sends_total
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,10 +35,12 @@ class ConnectionManager:
         await websocket.accept()
         async with self._lock:
             self._subscriptions[websocket] = set()
+        gateway_connected_clients.set(self.client_count)
 
     async def disconnect(self, websocket: WebSocket) -> None:
         async with self._lock:
             self._subscriptions.pop(websocket, None)
+        gateway_connected_clients.set(self.client_count)
 
     async def subscribe(self, websocket: WebSocket, asset: str) -> None:
         async with self._lock:
@@ -69,9 +73,11 @@ class ConnectionManager:
                 stale.append(client)
 
         if stale:
+            gateway_dropped_sends_total.inc(len(stale))
             async with self._lock:
                 for client in stale:
                     self._subscriptions.pop(client, None)
+            gateway_connected_clients.set(self.client_count)
 
     @property
     def client_count(self) -> int:
