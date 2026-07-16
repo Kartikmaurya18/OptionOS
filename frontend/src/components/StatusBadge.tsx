@@ -28,7 +28,21 @@ const DOT_COLORS: Record<ConnectionPhase, string> = {
 export function StatusBadge({ phase, reconnectAttempts }: StatusBadgeProps) {
   return (
     <Badge variant={VARIANTS[phase]}>
-      <span className={cn("h-1.5 w-1.5 rounded-full", DOT_COLORS[phase], phase !== "disconnected" && "animate-pulse")} />
+      <span className="relative flex h-1.5 w-1.5">
+        {/* Radiating ring only while genuinely connected -- a "live" pulse
+            on a connecting/disconnected state would say the opposite of
+            what's true. */}
+        {phase === "connected" && (
+          <span className={cn("absolute inline-flex h-full w-full animate-ping rounded-full opacity-75", DOT_COLORS[phase])} />
+        )}
+        <span
+          className={cn(
+            "relative inline-flex h-1.5 w-1.5 rounded-full",
+            DOT_COLORS[phase],
+            phase === "connecting" && "animate-pulse",
+          )}
+        />
+      </span>
       {LABELS[phase]}
       {phase === "disconnected" && reconnectAttempts > 0 ? ` (attempt ${reconnectAttempts})` : ""}
     </Badge>

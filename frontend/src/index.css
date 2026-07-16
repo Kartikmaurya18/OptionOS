@@ -17,6 +17,39 @@
   --color-positive: #22c55e;
   --color-negative: #f87171;
   --color-warning: #f59e0b;
+
+  --animate-flash-up: flash-up 900ms ease-out;
+  --animate-flash-down: flash-down 900ms ease-out;
+  --animate-arrow-fade: arrow-fade 900ms ease-out forwards;
+}
+
+@keyframes flash-up {
+  0% {
+    background-color: color-mix(in srgb, var(--color-call) 40%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+@keyframes flash-down {
+  0% {
+    background-color: color-mix(in srgb, var(--color-put) 40%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+@keyframes arrow-fade {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
 }
 
 @layer base {

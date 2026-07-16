@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
+import { FlashValue } from "@/components/FlashValue";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useAssets } from "@/hooks/useAssets";
 import { useHeaderStats } from "@/hooks/useHeaderStats";
@@ -15,13 +16,17 @@ function useTick(intervalMs: number): void {
   }, [intervalMs]);
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div>
       <div className="text-xs font-medium uppercase tracking-wide text-muted">{label}</div>
       <div className="text-lg font-semibold tabular-nums text-foreground">{value}</div>
     </div>
   );
+}
+
+function formatSpot(value: number | null | undefined): string {
+  return value != null ? `$${formatPrice(value)}` : "--";
 }
 
 function AssetSwitcher({ current }: { current: string }) {
@@ -62,7 +67,7 @@ export function Header() {
         <div className="text-xs text-muted">Live via Delta Exchange</div>
       </div>
 
-      <Stat label={`${stats.asset} Spot`} value={stats.spotPrice != null ? `$${formatPrice(stats.spotPrice)}` : "--"} />
+      <Stat label={`${stats.asset} Spot`} value={<FlashValue value={stats.spotPrice} format={formatSpot} />} />
       <Stat label="Expiry" value={formatExpiry(stats.expiry)} />
       <Stat label="Strikes" value={String(stats.strikeCount)} />
       <Stat label="Last Update" value={formatRelativeTime(stats.lastMessageTime)} />
