@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     ws_reconnect_min_delay: float = 1.0
     ws_reconnect_max_delay: float = 30.0
     ws_ping_interval: float = 25.0
+    # How often each shard re-checks whether a newer expiry has become the
+    # nearest one (e.g. the current contract expired). Delta's BTC/ETH
+    # options typically roll over daily, so this only needs to be frequent
+    # enough to catch that within a few minutes of expiry, not real-time.
+    expiry_refresh_interval: float = 300.0
 
     # Redis is the fan-out seam between the Market Data Service (publisher)
     # and any number of WebSocket Gateway instances (subscribers) -- see

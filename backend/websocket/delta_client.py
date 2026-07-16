@@ -85,6 +85,8 @@ class DeltaOptionsStreamer:
         self.candles.on_close(self._on_candle_close)
         self._symbols: list[str] = []
         self._bucket_closer_tasks: list[asyncio.Task] = []
+        self._expiry_watcher_task: Optional[asyncio.Task] = None
+        self._active_ws: Optional[websockets.ClientConnection] = None
 
     def _on_candle_close(self, key: str, timeframe: str, candle: Candle) -> None:
         """CandleEngine callback -- fires synchronously whenever a bucket
@@ -107,6 +109,32 @@ class DeltaOptionsStreamer:
         for timeframe in self.candles.timeframes:
             self._bucket_closer_tasks.append(asyncio.create_task(self.candles.run_bucket_closer(timeframe)))
 
+    def _start_expiry_watcher(self, http_client: httpx.AsyncClient) -> None:
+        """Background task, started once: periodically re-resolves the
+        option chain so a contract rolling over to a new nearest expiry
+        doesn't leave this shard silently subscribed to symbols that
+        stopped trading (Delta simply stops sending ticks for an expired
+        contract -- there's no error to react to, so this has to poll)."""
+        if self._expiry_watcher_task is not None:
+            return
+        self._expiry_watcher_task = asyncio.create_task(self._watch_for_expiry_rollover(http_client))
+
+    async def _watch_for_expiry_rollover(self, http_client: httpx.AsyncClient) -> None:
+        while True:
+            await asyncio.sleep(settings.expiry_refresh_interval)
+            try:
+                rolled_over = await self._refresh_chain(http_client)
+            except Exception:
+                logger.exception("%s: failed to check for expiry rollover", self.asset)
+                continue
+            if rolled_over and self._active_ws is not None:
+                # Closing the live connection is what makes the new
+                # self._symbols actually take effect: _connect_and_stream's
+                # subscribe payload is only built at connect time, and
+                # run_forever's outer loop reconnects immediately using the
+                # values this method just updated.
+                await self._active_ws.close()
+
     async def run_forever(self) -> None:
         delay = settings.ws_reconnect_min_delay
         async with httpx.AsyncClient(timeout=10.0) as http_client:
@@ -115,6 +143,7 @@ class DeltaOptionsStreamer:
                     if self.status.expiry is None:
                         await self._bootstrap(http_client)
                         self._start_candle_bucket_closers()
+                        self._start_expiry_watcher(http_client)
 
                     await self._connect_and_stream()
                     delay = settings.ws_reconnect_min_delay
@@ -131,10 +160,22 @@ class DeltaOptionsStreamer:
                 delay = min(delay * 2, settings.ws_reconnect_max_delay)
 
     async def _bootstrap(self, http_client: httpx.AsyncClient) -> None:
-        """One-time setup: resolve the nearest expiry via SymbolResolver,
-        register every strike in the store, and seed it with a REST snapshot
-        before streaming."""
+        """First-time setup: resolve the nearest expiry via SymbolResolver
+        and seed the store with a REST snapshot before streaming."""
+        await self._refresh_chain(http_client)
+
+    async def _refresh_chain(self, http_client: httpx.AsyncClient) -> bool:
+        """Resolves the current nearest expiry and, if it differs from what
+        this shard already has (first call, or a rollover), registers every
+        strike and reseeds via REST. Returns True if the chain actually
+        changed, so callers know whether a resubscribe is needed."""
         index = await self.resolver.resolve(http_client)
+        if index.expiry == self.status.expiry:
+            return False
+
+        if self.status.expiry is not None:
+            logger.info("%s: expiry rolled over %s -> %s", self.asset, self.status.expiry, index.expiry)
+
         self.status.expiry = index.expiry
         for strike in index.strikes:
             self.store.ensure_row(
@@ -151,7 +192,9 @@ class DeltaOptionsStreamer:
             for ticker in tickers:
                 self._apply_ticker(ticker, broadcast=False)
         except Exception:
-            logger.exception("Failed to seed initial ticker snapshot from REST; continuing with WS only")
+            logger.exception("Failed to seed ticker snapshot from REST; continuing with WS only")
+
+        return True
 
     async def _connect_and_stream(self) -> None:
         subscribe_payload = {
@@ -170,31 +213,35 @@ class DeltaOptionsStreamer:
             ping_interval=settings.ws_ping_interval,
             ping_timeout=settings.ws_ping_interval,
         ) as ws:
-            await ws.send(orjson.dumps(subscribe_payload).decode("utf-8"))
-            self.status.connected = True
-            self.status.reconnect_attempts = 0
-            await self.publisher.publish(self.status.to_dict())
+            self._active_ws = ws
+            try:
+                await ws.send(orjson.dumps(subscribe_payload).decode("utf-8"))
+                self.status.connected = True
+                self.status.reconnect_attempts = 0
+                await self.publisher.publish(self.status.to_dict())
 
-            async for raw_message in ws:
-                receive_time = time.time()
-                self.status.last_message_time = receive_time
+                async for raw_message in ws:
+                    receive_time = time.time()
+                    self.status.last_message_time = receive_time
 
-                # Delta sends heartbeats/other channel types too; only
-                # ticker payloads matter here, and malformed frames are
-                # dropped rather than crashing the stream.
-                try:
-                    message = orjson.loads(raw_message)
-                except orjson.JSONDecodeError:
-                    logger.warning("Dropped malformed (non-JSON) WebSocket message")
-                    continue
+                    # Delta sends heartbeats/other channel types too; only
+                    # ticker payloads matter here, and malformed frames are
+                    # dropped rather than crashing the stream.
+                    try:
+                        message = orjson.loads(raw_message)
+                    except orjson.JSONDecodeError:
+                        logger.warning("Dropped malformed (non-JSON) WebSocket message")
+                        continue
 
-                if message.get("type") not in ("v2/ticker", "ticker"):
-                    continue
+                    if message.get("type") not in ("v2/ticker", "ticker"):
+                        continue
 
-                update = self._apply_ticker(message, broadcast=True)
-                if update is not None:
-                    await self.publisher.publish(update)
-                    tick_to_publish_seconds.labels(asset=self.asset).observe(time.time() - receive_time)
+                    update = self._apply_ticker(message, broadcast=True)
+                    if update is not None:
+                        await self.publisher.publish(update)
+                        tick_to_publish_seconds.labels(asset=self.asset).observe(time.time() - receive_time)
+            finally:
+                self._active_ws = None
 
     def _apply_ticker(self, ticker: dict, broadcast: bool) -> Optional[dict]:
         """Parses one Delta ticker payload, updates the store, and returns
